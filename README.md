@@ -37,6 +37,13 @@ Run backend + frontend together:
 uv run react-rag-dev
 ```
 
+If `npm` is not installed on the machine, this command will fail fast with guidance.
+In that case, install Node.js/npm or run backend-only:
+
+```bash
+uv run react-rag-api
+```
+
 Run frontend app:
 
 ```bash
