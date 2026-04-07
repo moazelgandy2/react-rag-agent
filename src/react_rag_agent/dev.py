@@ -4,9 +4,31 @@ from pathlib import Path
 from shutil import which
 
 
+def _require_supported_node() -> None:
+    node_path = which("node")
+    if node_path is None:
+        raise RuntimeError(
+            "Could not find 'node' in PATH. Install Node.js 20+, then re-run 'uv run react-rag-dev'."
+        )
+
+    try:
+        version_text = subprocess.check_output([node_path, "-v"], text=True).strip()
+        major = int(version_text.lstrip("v").split(".")[0])
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(f"Could not determine Node.js version: {exc}") from exc
+
+    if major < 20:
+        raise RuntimeError(
+            f"Unsupported Node.js version '{version_text}'. Frontend requires Node.js 20+ "
+            "(Vite 8). Upgrade Node, then run 'cd web && npm install' and 'uv run react-rag-dev'."
+        )
+
+
 def run() -> None:
     root = Path(__file__).resolve().parents[2]
     web_dir = root / "web"
+
+    _require_supported_node()
 
     npm_path = which("npm")
     if npm_path is None:

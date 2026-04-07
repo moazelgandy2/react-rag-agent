@@ -28,6 +28,8 @@ function App() {
   const [answer, setAnswer] = useState('')
   const [chatting, setChatting] = useState(false)
   const [trace, setTrace] = useState<string[]>([])
+  const [sessionId, setSessionId] = useState('')
+  const [sessionMessage, setSessionMessage] = useState('')
 
   const [stats, setStats] = useState<{
     collection_name: string
@@ -41,16 +43,45 @@ function App() {
   const [searching, setSearching] = useState(false)
 
   const statusText = useMemo(() => {
+    if (!sessionId) return 'Creating session...'
     if (chatting) return 'Running agent...'
     if (ingesting) return 'Ingestion running...'
     if (uploading) return 'Uploading files...'
     return 'Ready'
-  }, [chatting, ingesting, uploading])
+  }, [chatting, ingesting, sessionId, uploading])
 
   useEffect(() => {
+    void createSession()
     void refreshDocuments()
     void refreshStats()
   }, [])
+
+  async function createSession() {
+    try {
+      const res = await fetch(`${API_BASE}/sessions`, { method: 'POST' })
+      const data = await res.json()
+      setSessionId(data.session_id ?? '')
+      setSessionMessage('Session ready.')
+    } catch (err) {
+      setSessionId('')
+      setSessionMessage(`Session creation failed: ${String(err)}`)
+    }
+  }
+
+  async function resetSession() {
+    if (sessionId) {
+      try {
+        await fetch(`${API_BASE}/sessions/${sessionId}`, { method: 'DELETE' })
+      } catch {
+        // no-op: reset path should continue even if delete fails
+      }
+    }
+
+    setQuestion('')
+    setAnswer('')
+    setTrace([])
+    await createSession()
+  }
 
   async function refreshDocuments() {
     const res = await fetch(`${API_BASE}/documents`)
@@ -115,7 +146,7 @@ function App() {
 
   async function askQuestion(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!question.trim() || chatting) return
+    if (!question.trim() || chatting || !sessionId) return
 
     setChatting(true)
     setAnswer('')
@@ -125,7 +156,7 @@ function App() {
       const response = await fetch(`${API_BASE}/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: question.trim() }),
+        body: JSON.stringify({ message: question.trim(), session_id: sessionId }),
       })
       if (!response.body) {
         throw new Error('No streaming body returned by API')
@@ -199,6 +230,7 @@ function App() {
         <div>
           <p className="kicker">LOCAL REACT RAG CONTROL ROOM</p>
           <h1>Knowledge Ops Console</h1>
+          {sessionId && <p className="kicker">Session: {sessionId.slice(0, 8)}...</p>}
         </div>
         <div className="status-pill">{statusText}</div>
       </header>
@@ -224,6 +256,12 @@ function App() {
       {activeView === 'chat' && (
         <section className="panel">
           <h2>Ask Questions</h2>
+          <div className="actions-row">
+            <button onClick={() => void resetSession()} disabled={chatting}>
+              Reset Session
+            </button>
+            {sessionMessage && <p className="muted">{sessionMessage}</p>}
+          </div>
           <form onSubmit={askQuestion} className="stack">
             <textarea
               value={question}

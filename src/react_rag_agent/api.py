@@ -9,10 +9,11 @@ from fastapi.responses import StreamingResponse
 from langchain_core.messages import AIMessage, ToolMessage
 from pydantic import BaseModel, Field
 
-from .agent import build_agent, invoke_agent, stream_agent
+from .agent import build_agent, invoke_agent_with_messages, stream_agent_with_messages
 from .config import settings
 from .ingest import run_ingestion
 from .retrieval import get_vector_store, retrieve
+from .session_store import session_store
 
 ALLOWED_EXTENSIONS = {".pdf", ".md", ".txt"}
 
@@ -32,11 +33,18 @@ agent = build_agent()
 
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1)
+    session_id: str = Field(min_length=1)
 
 
 class SearchRequest(BaseModel):
     query: str = Field(min_length=1)
     top_k: int | None = None
+
+
+class SessionCreateResponse(BaseModel):
+    session_id: str
+    ttl_minutes: int
+    max_messages: int
 
 
 def _extract_final_answer(result: dict[str, Any]) -> str:
@@ -53,6 +61,48 @@ def health() -> dict[str, Any]:
         "status": "ok",
         "reasoning_model": settings.reasoning_model,
         "embedding_model": settings.embedding_model,
+    }
+
+
+@app.post("/sessions", response_model=SessionCreateResponse)
+def create_session() -> SessionCreateResponse:
+    session = session_store.create()
+    return SessionCreateResponse(
+        session_id=session.session_id,
+        ttl_minutes=settings.session_ttl_minutes,
+        max_messages=settings.session_max_messages,
+    )
+
+
+@app.get("/sessions/{session_id}")
+def get_session(session_id: str) -> dict[str, Any]:
+    messages = session_store.list_messages(session_id)
+    if messages is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {
+        "session_id": session_id,
+        "messages": [{"role": role, "content": content} for role, content in messages],
+        "message_count": len(messages),
+    }
+
+
+@app.delete("/sessions/{session_id}")
+def delete_session(session_id: str) -> dict[str, Any]:
+    deleted = session_store.clear(session_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"status": "ok", "deleted": True}
+
+
+@app.get("/")
+def root() -> dict[str, Any]:
+    return {
+        "name": "ReAct RAG Agent API",
+        "status": "ok",
+        "docs": "/docs",
+        "health": "/health",
+        "frontend_dev": "http://localhost:5173",
+        "note": "This is the backend API. Open the frontend URL for the GUI.",
     }
 
 
@@ -107,21 +157,40 @@ def ingest_documents() -> dict[str, Any]:
 
 @app.post("/chat")
 def chat(request: ChatRequest) -> dict[str, Any]:
+    history = session_store.list_messages(request.session_id)
+    if history is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    message_input = [*history, ("user", request.message)]
+
     try:
-        result = invoke_agent(agent, request.message)
+        result = invoke_agent_with_messages(agent, message_input)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"Chat failed: {exc}") from exc
 
+    answer = _extract_final_answer(result)
+    session_store.append_exchange(request.session_id, request.message, answer)
+
     return {
-        "answer": _extract_final_answer(result),
+        "session_id": request.session_id,
+        "answer": answer,
     }
 
 
 @app.post("/chat/stream")
 def chat_stream(request: ChatRequest) -> StreamingResponse:
     def event_stream():
+        history = session_store.list_messages(request.session_id)
+        if history is None:
+            payload = {"type": "error", "content": "Session not found"}
+            yield f"data: {json.dumps(payload)}\n\n"
+            return
+
+        message_input = [*history, ("user", request.message)]
+        final_answer = ""
+
         try:
-            for step in stream_agent(agent, request.message):
+            for step in stream_agent_with_messages(agent, message_input):
                 messages = step.get("messages", [])
                 if not messages:
                     continue
@@ -142,9 +211,11 @@ def chat_stream(request: ChatRequest) -> StreamingResponse:
                     }
                     yield f"data: {json.dumps(payload)}\n\n"
                 elif isinstance(last_message, AIMessage) and not last_message.tool_calls:
-                    payload = {"type": "final_answer", "content": str(last_message.content)}
+                    final_answer = str(last_message.content)
+                    payload = {"type": "final_answer", "content": final_answer}
                     yield f"data: {json.dumps(payload)}\n\n"
 
+            session_store.append_exchange(request.session_id, request.message, final_answer)
             yield 'data: {"type": "done"}\n\n'
         except Exception as exc:  # noqa: BLE001
             payload = {"type": "error", "content": str(exc)}

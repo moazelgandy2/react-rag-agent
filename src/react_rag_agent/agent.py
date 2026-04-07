@@ -60,3 +60,31 @@ def stream_agent(agent, user_message: str) -> Generator[dict[str, Any], None, No
     )
     for step in stream:
         yield step
+
+
+def invoke_agent_with_messages(agent, messages: list[tuple[str, str]]) -> dict[str, Any]:
+    payload: dict[str, Any] = {"messages": messages}
+    if not _PROMPT_BAKED_IN:
+        payload = {"messages": [("system", SYSTEM_PROMPT), *messages]}
+    result = agent.invoke(
+        payload,
+        config={"recursion_limit": settings.max_iterations * 2},
+    )
+    return result
+
+
+def stream_agent_with_messages(
+    agent,
+    messages: list[tuple[str, str]],
+) -> Generator[dict[str, Any], None, None]:
+    payload: dict[str, Any] = {"messages": messages}
+    if not _PROMPT_BAKED_IN:
+        payload = {"messages": [("system", SYSTEM_PROMPT), *messages]}
+
+    stream = agent.stream(
+        payload,
+        config={"recursion_limit": settings.max_iterations * 2},
+        stream_mode="values",
+    )
+    for step in stream:
+        yield step

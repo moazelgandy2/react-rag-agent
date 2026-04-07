@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     api_port: int = 8000
     cors_origins: str = "http://localhost:5173"
     max_upload_mb: int = 25
+    session_ttl_minutes: int = 240
+    session_max_messages: int = 40
+    session_max_count: int = 200
 
     model_config = SettingsConfigDict(
         env_prefix="",
