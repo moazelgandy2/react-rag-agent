@@ -1,4 +1,5 @@
 import json
+import re
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -53,6 +54,24 @@ def _extract_final_answer(result: dict[str, Any]) -> str:
         if isinstance(message, AIMessage) and not message.tool_calls:
             return str(message.content)
     return ""
+
+
+def _humanize_answer(text: str) -> str:
+    cleaned = text.strip()
+    cleaned = re.sub(
+        r"^(Based on|According to|From|Using|Given)[^.]{0,180}\.\s*",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r"\b(based on the (retrieved|provided|available) (documents|context))\b",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
+    return cleaned or text
 
 
 @app.get("/health")
@@ -168,7 +187,7 @@ def chat(request: ChatRequest) -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"Chat failed: {exc}") from exc
 
-    answer = _extract_final_answer(result)
+    answer = _humanize_answer(_extract_final_answer(result))
     session_store.append_exchange(request.session_id, request.message, answer)
 
     return {
@@ -211,7 +230,7 @@ def chat_stream(request: ChatRequest) -> StreamingResponse:
                     }
                     yield f"data: {json.dumps(payload)}\n\n"
                 elif isinstance(last_message, AIMessage) and not last_message.tool_calls:
-                    final_answer = str(last_message.content)
+                    final_answer = _humanize_answer(str(last_message.content))
                     payload = {"type": "final_answer", "content": final_answer}
                     yield f"data: {json.dumps(payload)}\n\n"
 

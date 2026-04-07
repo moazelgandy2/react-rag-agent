@@ -102,6 +102,7 @@ h4 {
   background: #fff;
   padding: 1rem;
   animation: rise 240ms ease;
+  border-radius: 14px;
 }
 
 .stack {
@@ -116,6 +117,7 @@ input {
   padding: 0.7rem;
   background: #fffdf9;
   font: inherit;
+  border-radius: 12px;
 }
 
 button {
@@ -126,6 +128,13 @@ button {
   padding: 0.55rem 0.9rem;
   cursor: pointer;
   font-family: var(--mono);
+  border-radius: 999px;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+
+button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(143, 58, 26, 0.25);
 }
 
 button:disabled {
@@ -161,6 +170,38 @@ pre {
   padding-left: 1rem;
   display: grid;
   gap: 0.35rem;
+}
+
+.chat-log {
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.6rem;
+  max-height: 360px;
+  overflow: auto;
+  padding-right: 0.25rem;
+}
+
+.bubble {
+  border: 1px solid var(--edge);
+  border-radius: 14px;
+  padding: 0.7rem 0.8rem;
+}
+
+.bubble.user {
+  background: #fff2ea;
+  border-color: #e0b79f;
+}
+
+.bubble.assistant {
+  background: #f7faf9;
+  border-color: #bad4ca;
+}
+
+.bubble-role {
+  margin: 0 0 0.3rem;
+  font-size: 0.76rem;
+  font-family: var(--mono);
+  color: var(--ink-soft);
 }
 
 .actions-row {

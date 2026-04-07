@@ -8,6 +8,12 @@ type VectorSearchResult = {
   relevance_score: number
 }
 
+type ChatTurn = {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+}
+
 type StreamEvent =
   | { type: 'tool_call'; name: string; args: Record<string, unknown> }
   | { type: 'tool_result'; content: string }
@@ -28,6 +34,7 @@ function App() {
   const [answer, setAnswer] = useState('')
   const [chatting, setChatting] = useState(false)
   const [trace, setTrace] = useState<string[]>([])
+  const [chatTurns, setChatTurns] = useState<ChatTurn[]>([])
   const [sessionId, setSessionId] = useState('')
   const [sessionMessage, setSessionMessage] = useState('')
 
@@ -80,6 +87,7 @@ function App() {
     setQuestion('')
     setAnswer('')
     setTrace([])
+    setChatTurns([])
     await createSession()
   }
 
@@ -151,12 +159,18 @@ function App() {
     setChatting(true)
     setAnswer('')
     setTrace([])
+    const askedQuestion = question.trim()
+    setChatTurns((prev) => [
+      ...prev,
+      { id: `${Date.now()}-user`, role: 'user', content: askedQuestion },
+    ])
+    setQuestion('')
 
     try {
       const response = await fetch(`${API_BASE}/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: question.trim(), session_id: sessionId }),
+        body: JSON.stringify({ message: askedQuestion, session_id: sessionId }),
       })
       if (!response.body) {
         throw new Error('No streaming body returned by API')
@@ -191,6 +205,10 @@ function App() {
           }
           if (eventData.type === 'final_answer') {
             setAnswer(eventData.content)
+            setChatTurns((prev) => [
+              ...prev,
+              { id: `${Date.now()}-assistant`, role: 'assistant', content: eventData.content },
+            ])
           }
           if (eventData.type === 'error') {
             setTrace((prev) => [...prev, `Error: ${eventData.content}`])
@@ -269,10 +287,23 @@ function App() {
               placeholder="Ask about your uploaded documents..."
               rows={4}
             />
-            <button type="submit" disabled={chatting}>
+            <button type="submit" disabled={chatting || !sessionId}>
               {chatting ? 'Running...' : 'Run ReAct Agent'}
             </button>
           </form>
+
+          <section className="chat-log">
+            {chatTurns.length === 0 ? (
+              <p className="muted">Start a conversation. The assistant will remember the current session.</p>
+            ) : (
+              chatTurns.map((turn) => (
+                <article key={turn.id} className={`bubble ${turn.role}`}>
+                  <p className="bubble-role">{turn.role === 'user' ? 'You' : 'Assistant'}</p>
+                  <p>{turn.content}</p>
+                </article>
+              ))
+            )}
+          </section>
 
           <div className="split-grid">
             <article>
