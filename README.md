@@ -31,6 +31,12 @@ Run backend API:
 uv run react-rag-api
 ```
 
+Run backend + frontend together:
+
+```bash
+uv run react-rag-dev
+```
+
 Run frontend app:
 
 ```bash
