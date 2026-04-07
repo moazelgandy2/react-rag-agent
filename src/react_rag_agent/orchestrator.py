@@ -1,8 +1,12 @@
 import ast
+import json
 import re
 from dataclasses import dataclass
 from enum import Enum
 
+from langchain_ollama import ChatOllama
+
+from .config import settings
 from .tools import calculator
 
 
@@ -16,6 +20,7 @@ class Route(str, Enum):
 class OrchestrationDecision:
     route: Route
     reason: str
+    source: str
 
 
 _MATH_CHARS = re.compile(r"^[0-9\s\+\-\*\/%\(\)\.,]+$")
@@ -32,16 +37,29 @@ _MATH_KEYWORDS = (
     "sum",
 )
 
+_ORCHESTRATOR_PROMPT = """You are an orchestration router for a local AI system.
+Choose exactly one route for each user message:
+
+- calculator: arithmetic or numeric computation only
+- direct: simple social conversation, acknowledgments, greetings, thanks
+- agent: all knowledge requests, document-grounded questions, reasoning tasks, and anything uncertain
+
+Always prefer agent if uncertain.
+
+Return strict JSON only:
+{"route":"agent|calculator|direct","reason":"short reason"}
+"""
+
 
 def decide_route(message: str) -> OrchestrationDecision:
-    normalized = message.strip().lower()
-    if _looks_like_math(normalized):
-        return OrchestrationDecision(route=Route.CALCULATOR, reason="math intent")
+    heuristic = _decide_route_heuristic(message)
+    if not settings.orchestrator_enabled:
+        return heuristic
 
-    if _is_direct_conversation(normalized):
-        return OrchestrationDecision(route=Route.DIRECT, reason="conversation intent")
-
-    return OrchestrationDecision(route=Route.AGENT, reason="knowledge/reasoning intent")
+    llm_decision = _decide_route_llm(message)
+    if llm_decision is None:
+        return heuristic
+    return llm_decision
 
 
 def run_direct_reply(message: str) -> str:
@@ -51,13 +69,13 @@ def run_direct_reply(message: str) -> str:
 
     lower = text.lower()
     if any(token in lower for token in ("hi", "hello", "hey")):
-        return "Hey! I am here and ready. What do you want to explore?"
+        return "Hey! Great to see you. What do you want to work on today?"
     if "thank" in lower:
-        return "Anytime. Want to continue with the next question?"
+        return "You are welcome. Want me to continue with the next step?"
     if any(token in lower for token in ("how are you", "what's up", "hows it going")):
-        return "I am doing great and ready to help."
+        return "I am doing well and fully focused. What should we tackle next?"
 
-    return "Got it. I can help with that—share the specific question and I will handle it."
+    return "Got it. I am with you. Share the exact task and I will handle it."
 
 
 def run_calculator_route(message: str) -> str:
@@ -65,6 +83,71 @@ def run_calculator_route(message: str) -> str:
     if not expression:
         return "I could not parse a valid math expression from that."
     return calculator.invoke({"expression": expression})
+
+
+def _decide_route_llm(message: str) -> OrchestrationDecision | None:
+    try:
+        llm = ChatOllama(
+            model=settings.orchestrator_model,
+            base_url=settings.ollama_base_url,
+            temperature=settings.orchestrator_temperature,
+        )
+        response = llm.invoke(
+            [
+                ("system", _ORCHESTRATOR_PROMPT),
+                ("user", f"Message: {message}"),
+            ]
+        )
+        content = str(response.content).strip()
+        payload = _parse_router_json(content)
+        if payload is None:
+            return None
+
+        route_raw = str(payload.get("route", "")).strip().lower()
+        reason = str(payload.get("reason", "llm route")).strip() or "llm route"
+        if route_raw not in {Route.CALCULATOR.value, Route.DIRECT.value, Route.AGENT.value}:
+            return None
+
+        return OrchestrationDecision(route=Route(route_raw), reason=reason, source="llm")
+    except Exception:
+        return None
+
+
+def _parse_router_json(content: str) -> dict | None:
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        pass
+
+    match = re.search(r"\{.*\}", content, flags=re.DOTALL)
+    if not match:
+        return None
+
+    try:
+        return json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return None
+
+
+def _decide_route_heuristic(message: str) -> OrchestrationDecision:
+    normalized = message.strip().lower()
+    if _looks_like_math(normalized):
+        return OrchestrationDecision(
+            route=Route.CALCULATOR, reason="math intent", source="heuristic"
+        )
+
+    if _is_direct_conversation(normalized):
+        return OrchestrationDecision(
+            route=Route.DIRECT,
+            reason="conversation intent",
+            source="heuristic",
+        )
+
+    return OrchestrationDecision(
+        route=Route.AGENT,
+        reason="knowledge/reasoning intent",
+        source="heuristic",
+    )
 
 
 def _looks_like_math(message: str) -> bool:

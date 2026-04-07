@@ -18,7 +18,7 @@ type ChatTurn = {
 }
 
 type StreamEvent =
-  | { type: 'route'; route: string }
+  | { type: 'route'; route: string; source?: string; reason?: string }
   | { type: 'tool_call'; name: string; args: Record<string, unknown> }
   | { type: 'tool_result'; content: string }
   | { type: 'final_answer'; content: string }
@@ -217,7 +217,10 @@ function App() {
             setTrace((prev) => [...prev, `Tool call: ${eventData.name} ${JSON.stringify(eventData.args)}`])
           }
           if (eventData.type === 'route') {
-            setTrace((prev) => [...prev, `Route: ${eventData.route}`])
+            const details = [eventData.route]
+            if (eventData.source) details.push(`source=${eventData.source}`)
+            if (eventData.reason) details.push(`reason=${eventData.reason}`)
+            setTrace((prev) => [...prev, `Route: ${details.join(' | ')}`])
           }
           if (eventData.type === 'tool_result') {
             setTrace((prev) => [...prev, `Tool result: ${eventData.content}`])

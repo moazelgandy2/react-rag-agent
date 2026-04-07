@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     session_ttl_minutes: int = 240
     session_max_messages: int = 40
     session_max_count: int = 200
+    orchestrator_enabled: bool = True
+    orchestrator_model: str = "glm-4.7-flash"
+    orchestrator_temperature: float = 0.0
 
     model_config = SettingsConfigDict(
         env_prefix="",

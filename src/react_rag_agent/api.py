@@ -219,6 +219,8 @@ def chat_stream(request: ChatRequest) -> StreamingResponse:
 
         try:
             route_payload = {"type": "route", "route": decision.route.value}
+            route_payload["source"] = decision.source
+            route_payload["reason"] = decision.reason
             yield f"data: {json.dumps(route_payload)}\n\n"
 
             if decision.route == Route.CALCULATOR:

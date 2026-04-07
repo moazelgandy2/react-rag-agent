@@ -95,10 +95,18 @@ If the API process restarts, sessions are reset.
 
 ## Orchestration Layer
 
-The backend includes a lightweight orchestration layer that routes each request to the best path:
+The backend includes a smart orchestration layer that routes each request to the best path:
 
 - `calculator` route for math expressions
 - `direct` route for simple conversational turns
 - `agent` route for retrieval/reasoning with tools
+
+Routing is decided by a dedicated orchestrator model (`ORCHESTRATOR_MODEL`) with a heuristic fallback.
+
+Orchestrator settings:
+
+- `ORCHESTRATOR_ENABLED=true`
+- `ORCHESTRATOR_MODEL=glm-4.7-flash`
+- `ORCHESTRATOR_TEMPERATURE=0.0`
 
 This reduces latency and unnecessary tool loops while preserving full RAG behavior for knowledge-heavy questions.
