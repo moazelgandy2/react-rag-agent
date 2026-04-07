@@ -5,6 +5,7 @@ from pathlib import Path
 from langchain_chroma import Chroma
 from langchain_ollama import OllamaEmbeddings
 
+from .cache import retrieval_cache
 from .config import settings
 
 _CACHE_LOCK = Lock()
@@ -34,6 +35,7 @@ def reset_vector_store_cache() -> None:
     global _CACHED_VECTOR_STORE
     with _CACHE_LOCK:
         _CACHED_VECTOR_STORE = None
+    retrieval_cache.clear()
 
 
 def retrieve(query: str, top_k: int | None = None) -> list[dict]:
@@ -43,8 +45,13 @@ def retrieve(query: str, top_k: int | None = None) -> list[dict]:
         return []
 
     try:
-        vector_store = get_vector_store()
         k = max(1, top_k or settings.top_k)
+        cache_key = f"{query.strip()}::{k}"
+        cached = retrieval_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        vector_store = get_vector_store()
         results = vector_store.similarity_search_with_relevance_scores(
             query,
             k=k,
@@ -68,4 +75,5 @@ def retrieve(query: str, top_k: int | None = None) -> list[dict]:
             }
         )
 
+    retrieval_cache.set(cache_key, formatted_results)
     return formatted_results

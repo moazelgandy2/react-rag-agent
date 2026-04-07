@@ -1,8 +1,10 @@
 import json
 import re
+from hashlib import sha256
 from collections import Counter
 from pathlib import Path
 from typing import Any
+from time import perf_counter
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,6 +13,7 @@ from langchain_core.messages import AIMessage, ToolMessage
 from pydantic import BaseModel, Field
 
 from .agent import build_agent, invoke_agent_with_messages, stream_agent_with_messages
+from .cache import response_cache
 from .config import settings
 from .ingest import run_ingestion
 from .orchestrator import Route, decide_route, run_calculator_route, run_direct_reply
@@ -183,6 +186,27 @@ def chat(request: ChatRequest) -> dict[str, Any]:
 
     message_input = [*history, ("user", request.message)]
     decision = decide_route(request.message)
+    started = perf_counter()
+
+    cache_key_payload = {
+        "session_id": request.session_id,
+        "message": request.message.strip(),
+        "history": history,
+        "route": decision.route.value,
+    }
+    cache_key = sha256(json.dumps(cache_key_payload, sort_keys=True).encode("utf-8")).hexdigest()
+    cached_answer = response_cache.get(cache_key)
+    if cached_answer is not None:
+        session_store.append_exchange(request.session_id, request.message, cached_answer)
+        return {
+            "session_id": request.session_id,
+            "answer": cached_answer,
+            "route": decision.route.value,
+            "route_source": decision.source,
+            "route_reason": decision.reason,
+            "cache_hit": True,
+            "latency_ms": round((perf_counter() - started) * 1000, 2),
+        }
 
     try:
         if decision.route == Route.CALCULATOR:
@@ -196,11 +220,16 @@ def chat(request: ChatRequest) -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=f"Chat failed: {exc}") from exc
 
     session_store.append_exchange(request.session_id, request.message, answer)
+    response_cache.set(cache_key, answer)
 
     return {
         "session_id": request.session_id,
         "answer": answer,
         "route": decision.route.value,
+        "route_source": decision.source,
+        "route_reason": decision.reason,
+        "cache_hit": False,
+        "latency_ms": round((perf_counter() - started) * 1000, 2),
     }
 
 
@@ -215,6 +244,18 @@ def chat_stream(request: ChatRequest) -> StreamingResponse:
 
         message_input = [*history, ("user", request.message)]
         decision = decide_route(request.message)
+        started = perf_counter()
+
+        cache_key_payload = {
+            "session_id": request.session_id,
+            "message": request.message.strip(),
+            "history": history,
+            "route": decision.route.value,
+            "stream": True,
+        }
+        cache_key = sha256(
+            json.dumps(cache_key_payload, sort_keys=True).encode("utf-8")
+        ).hexdigest()
         final_answer = ""
 
         try:
@@ -222,6 +263,19 @@ def chat_stream(request: ChatRequest) -> StreamingResponse:
             route_payload["source"] = decision.source
             route_payload["reason"] = decision.reason
             yield f"data: {json.dumps(route_payload)}\n\n"
+
+            cached_answer = response_cache.get(cache_key)
+            if cached_answer is not None:
+                payload = {
+                    "type": "final_answer",
+                    "content": cached_answer,
+                    "cache_hit": True,
+                    "latency_ms": round((perf_counter() - started) * 1000, 2),
+                }
+                yield f"data: {json.dumps(payload)}\n\n"
+                session_store.append_exchange(request.session_id, request.message, cached_answer)
+                yield 'data: {"type": "done"}\n\n'
+                return
 
             if decision.route == Route.CALCULATOR:
                 final_answer = run_calculator_route(request.message)
@@ -258,6 +312,15 @@ def chat_stream(request: ChatRequest) -> StreamingResponse:
                         yield f"data: {json.dumps(payload)}\n\n"
 
             session_store.append_exchange(request.session_id, request.message, final_answer)
+            response_cache.set(cache_key, final_answer)
+            telemetry_payload = {
+                "type": "telemetry",
+                "route": decision.route.value,
+                "route_source": decision.source,
+                "latency_ms": round((perf_counter() - started) * 1000, 2),
+                "cache_hit": False,
+            }
+            yield f"data: {json.dumps(telemetry_payload)}\n\n"
             yield 'data: {"type": "done"}\n\n'
         except Exception as exc:  # noqa: BLE001
             payload = {"type": "error", "content": str(exc)}
@@ -320,6 +383,8 @@ def run() -> None:
         host=settings.api_host,
         port=settings.api_port,
         reload=False,
+        workers=settings.api_workers,
+        log_level=settings.api_log_level,
     )
 
 

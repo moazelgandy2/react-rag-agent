@@ -25,6 +25,9 @@ def build_agent():
         model=settings.reasoning_model,
         base_url=settings.ollama_base_url,
         temperature=settings.temperature,
+        num_ctx=settings.reasoning_num_ctx,
+        num_predict=settings.reasoning_num_predict,
+        keep_alive=settings.reasoning_keep_alive,
     )
 
     try:

@@ -6,6 +6,7 @@ from enum import Enum
 
 from langchain_ollama import ChatOllama
 
+from .cache import orchestrator_cache
 from .config import settings
 from .tools import calculator
 
@@ -86,11 +87,25 @@ def run_calculator_route(message: str) -> str:
 
 
 def _decide_route_llm(message: str) -> OrchestrationDecision | None:
+    cache_key = message.strip().lower()
+    cached = orchestrator_cache.get(cache_key)
+    if cached is not None:
+        try:
+            route = Route(cached["route"])
+            reason = cached.get("reason", "cached")
+            source = cached.get("source", "cache")
+            return OrchestrationDecision(route=route, reason=reason, source=source)
+        except Exception:
+            pass
+
     try:
         llm = ChatOllama(
             model=settings.orchestrator_model,
             base_url=settings.ollama_base_url,
             temperature=settings.orchestrator_temperature,
+            num_ctx=settings.orchestrator_num_ctx,
+            num_predict=settings.orchestrator_num_predict,
+            keep_alive=settings.orchestrator_keep_alive,
         )
         response = llm.invoke(
             [
@@ -108,7 +123,16 @@ def _decide_route_llm(message: str) -> OrchestrationDecision | None:
         if route_raw not in {Route.CALCULATOR.value, Route.DIRECT.value, Route.AGENT.value}:
             return None
 
-        return OrchestrationDecision(route=Route(route_raw), reason=reason, source="llm")
+        decision = OrchestrationDecision(route=Route(route_raw), reason=reason, source="llm")
+        orchestrator_cache.set(
+            cache_key,
+            {
+                "route": decision.route.value,
+                "reason": decision.reason,
+                "source": decision.source,
+            },
+        )
+        return decision
     except Exception:
         return None
 

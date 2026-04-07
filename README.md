@@ -75,6 +75,8 @@ Additional API settings:
 
 - `API_HOST=127.0.0.1`
 - `API_PORT=8000`
+- `API_WORKERS=1`
+- `API_LOG_LEVEL=info`
 - `CORS_ORIGINS=http://localhost:5173`
 - `MAX_UPLOAD_MB=25`
 - `SESSION_TTL_MINUTES=240`
@@ -110,3 +112,31 @@ Orchestrator settings:
 - `ORCHESTRATOR_TEMPERATURE=0.0`
 
 This reduces latency and unnecessary tool loops while preserving full RAG behavior for knowledge-heavy questions.
+
+## Production Readiness Notes
+
+- Use dedicated Ollama models for reasoning and orchestration on H100.
+- Tune context and generation limits:
+  - `REASONING_NUM_CTX`, `REASONING_NUM_PREDICT`, `REASONING_KEEP_ALIVE`
+  - `ORCHESTRATOR_NUM_CTX`, `ORCHESTRATOR_NUM_PREDICT`, `ORCHESTRATOR_KEEP_ALIVE`
+- Built-in KV caches are enabled for production efficiency:
+  - retrieval cache (`RETRIEVAL_CACHE_TTL_SECONDS`)
+  - orchestrator decision cache (`ORCHESTRATOR_CACHE_TTL_SECONDS`)
+  - response cache (`RESPONSE_CACHE_TTL_SECONDS`)
+  - global cap via `KV_CACHE_MAX_ENTRIES`
+- Streaming endpoint emits route and telemetry events for observability.
+
+### Recommended H100 Baseline
+
+```env
+REASONING_NUM_CTX=8192
+REASONING_NUM_PREDICT=768
+REASONING_KEEP_ALIVE=30m
+ORCHESTRATOR_NUM_CTX=2048
+ORCHESTRATOR_NUM_PREDICT=128
+ORCHESTRATOR_KEEP_ALIVE=30m
+KV_CACHE_MAX_ENTRIES=2000
+RETRIEVAL_CACHE_TTL_SECONDS=120
+ORCHESTRATOR_CACHE_TTL_SECONDS=600
+RESPONSE_CACHE_TTL_SECONDS=300
+```

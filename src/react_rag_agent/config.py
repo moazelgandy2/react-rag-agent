@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     data_dir: str = "./data/raw"
     api_host: str = "127.0.0.1"
     api_port: int = 8000
+    api_workers: int = 1
     cors_origins: str = "http://localhost:5173"
     max_upload_mb: int = 25
     session_ttl_minutes: int = 240
@@ -26,6 +27,18 @@ class Settings(BaseSettings):
     orchestrator_enabled: bool = True
     orchestrator_model: str = "glm-4.7-flash"
     orchestrator_temperature: float = 0.0
+    reasoning_num_ctx: int = 8192
+    reasoning_num_predict: int = 768
+    reasoning_keep_alive: str = "30m"
+    orchestrator_num_ctx: int = 2048
+    orchestrator_num_predict: int = 128
+    orchestrator_keep_alive: str = "30m"
+    kv_cache_max_entries: int = 2000
+    kv_cache_ttl_seconds: int = 300
+    retrieval_cache_ttl_seconds: int = 120
+    orchestrator_cache_ttl_seconds: int = 600
+    response_cache_ttl_seconds: int = 300
+    api_log_level: str = "info"
 
     model_config = SettingsConfigDict(
         env_prefix="",
