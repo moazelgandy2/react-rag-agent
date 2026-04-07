@@ -44,6 +44,15 @@ In that case, install Node.js/npm or run backend-only:
 uv run react-rag-api
 ```
 
+If `vite: not found` appears, install frontend dependencies first:
+
+```bash
+cd web
+npm install
+cd ..
+uv run react-rag-dev
+```
+
 Run frontend app:
 
 ```bash
