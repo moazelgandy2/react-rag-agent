@@ -111,5 +111,35 @@ def run_ingestion() -> Chroma:
     return vector_store
 
 
+def run_ingestion_from_files(files: list[Path]) -> Chroma:
+    documents: list[Document] = []
+    allowed_ext = {".pdf", ".md", ".txt"}
+
+    for file_path in files:
+        extension = file_path.suffix.lower()
+        if extension not in allowed_ext:
+            console.print(f"[yellow]Skipping unsupported file:[/] {file_path}")
+            continue
+
+        try:
+            if extension == ".pdf":
+                loader = PyPDFLoader(str(file_path))
+            else:
+                loader = TextLoader(str(file_path), encoding="utf-8")
+            file_docs = loader.load()
+        except Exception as exc:  # noqa: BLE001
+            console.print(f"[yellow]Failed to load {file_path}: {exc}[/]")
+            continue
+
+        for doc in file_docs:
+            doc.metadata["source"] = str(file_path)
+            doc.metadata["file_type"] = extension
+
+        documents.extend(file_docs)
+
+    chunks = chunk_documents(documents)
+    return create_vector_store(chunks)
+
+
 if __name__ == "__main__":
     run_ingestion()

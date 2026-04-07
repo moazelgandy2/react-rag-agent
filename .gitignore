@@ -9,3 +9,5 @@ data/raw/*
 dist/
 build/
 .ruff_cache/
+web/node_modules/
+web/dist/

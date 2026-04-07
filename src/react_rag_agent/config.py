@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     chroma_persist_dir: str = "./chroma_db"
     collection_name: str = "documents"
     data_dir: str = "./data/raw"
+    api_host: str = "127.0.0.1"
+    api_port: int = 8000
+    cors_origins: str = "http://localhost:5173"
+    max_upload_mb: int = 25
 
     model_config = SettingsConfigDict(
         env_prefix="",

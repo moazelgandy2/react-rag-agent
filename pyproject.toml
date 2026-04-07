@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "chromadb>=1.5.6",
+    "fastapi>=0.135.3",
     "langchain>=1.2.15",
     "langchain-chroma>=1.1.0",
     "langchain-community>=0.4.1",
@@ -15,11 +16,15 @@ dependencies = [
     "pydantic>=2.12.5",
     "pypdf>=6.9.2",
     "python-dotenv>=1.2.2",
+    "python-multipart>=0.0.24",
     "rich>=14.3.3",
+    "uvicorn>=0.44.0",
 ]
 
 [project.scripts]
 react-rag-agent = "react_rag_agent.main:main"
+react-rag-api = "react_rag_agent.api:run"
+react-rag-dev = "react_rag_agent.dev:run"
 
 [build-system]
 requires = ["setuptools>=69", "wheel"]
