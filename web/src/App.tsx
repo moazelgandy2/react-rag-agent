@@ -1,5 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import rehypeHighlight from 'rehype-highlight'
+import 'highlight.js/styles/github.css'
 
 type VectorSearchResult = {
   content: string
@@ -35,6 +39,8 @@ function App() {
   const [chatting, setChatting] = useState(false)
   const [trace, setTrace] = useState<string[]>([])
   const [chatTurns, setChatTurns] = useState<ChatTurn[]>([])
+  const [showTrace, setShowTrace] = useState(false)
+  const chatLogRef = useRef<HTMLElement | null>(null)
   const [sessionId, setSessionId] = useState('')
   const [sessionMessage, setSessionMessage] = useState('')
 
@@ -62,6 +68,11 @@ function App() {
     void refreshDocuments()
     void refreshStats()
   }, [])
+
+  useEffect(() => {
+    if (!chatLogRef.current) return
+    chatLogRef.current.scrollTop = chatLogRef.current.scrollHeight
+  }, [chatTurns, chatting])
 
   async function createSession() {
     try {
@@ -292,30 +303,64 @@ function App() {
             </button>
           </form>
 
-          <section className="chat-log">
+          <section className="chat-log" ref={chatLogRef}>
             {chatTurns.length === 0 ? (
               <p className="muted">Start a conversation. The assistant will remember the current session.</p>
             ) : (
               chatTurns.map((turn) => (
                 <article key={turn.id} className={`bubble ${turn.role}`}>
                   <p className="bubble-role">{turn.role === 'user' ? 'You' : 'Assistant'}</p>
-                  <p>{turn.content}</p>
+                  {turn.role === 'assistant' ? (
+                    <div className="markdown-body">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+                        {turn.content}
+                      </ReactMarkdown>
+                    </div>
+                  ) : (
+                    <p>{turn.content}</p>
+                  )}
                 </article>
               ))
             )}
+            {chatting && (
+              <article className="bubble assistant typing">
+                <p className="bubble-role">Assistant</p>
+                <div className="typing-dots" aria-label="Assistant is typing">
+                  <span />
+                  <span />
+                  <span />
+                </div>
+              </article>
+            )}
           </section>
+
+          <div className="actions-row">
+            <button type="button" onClick={() => setShowTrace((prev) => !prev)}>
+              {showTrace ? 'Hide Trace' : 'Show Trace'}
+            </button>
+          </div>
 
           <div className="split-grid">
             <article>
               <h3>Answer</h3>
-              <pre>{answer || 'No answer yet.'}</pre>
+              {answer ? (
+                <div className="markdown-body">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+                    {answer}
+                  </ReactMarkdown>
+                </div>
+              ) : (
+                <pre>No answer yet.</pre>
+              )}
             </article>
-            <article>
-              <h3>Agent Trace</h3>
-              <ul className="trace-list">
-                {trace.length === 0 ? <li>No trace yet.</li> : trace.map((item, idx) => <li key={idx}>{item}</li>)}
-              </ul>
-            </article>
+            {showTrace && (
+              <article>
+                <h3>Agent Trace</h3>
+                <ul className="trace-list">
+                  {trace.length === 0 ? <li>No trace yet.</li> : trace.map((item, idx) => <li key={idx}>{item}</li>)}
+                </ul>
+              </article>
+            )}
           </div>
         </section>
       )}
