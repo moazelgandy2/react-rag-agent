@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import rehypeHighlight from 'rehype-highlight'
-import 'highlight.js/styles/github.css'
+import { lazy, Suspense } from 'react'
+
+const MarkdownRenderer = lazy(() => import('./components/MarkdownRenderer'))
 
 type VectorSearchResult = {
   content: string
@@ -19,6 +18,7 @@ type ChatTurn = {
 }
 
 type StreamEvent =
+  | { type: 'route'; route: string }
   | { type: 'tool_call'; name: string; args: Record<string, unknown> }
   | { type: 'tool_result'; content: string }
   | { type: 'final_answer'; content: string }
@@ -41,6 +41,7 @@ function App() {
   const [chatTurns, setChatTurns] = useState<ChatTurn[]>([])
   const [showTrace, setShowTrace] = useState(false)
   const chatLogRef = useRef<HTMLElement | null>(null)
+  const uploadInputRef = useRef<HTMLInputElement | null>(null)
   const [sessionId, setSessionId] = useState('')
   const [sessionMessage, setSessionMessage] = useState('')
 
@@ -54,6 +55,7 @@ function App() {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<VectorSearchResult[]>([])
   const [searching, setSearching] = useState(false)
+  const [healthOk, setHealthOk] = useState(true)
 
   const statusText = useMemo(() => {
     if (!sessionId) return 'Creating session...'
@@ -67,6 +69,7 @@ function App() {
     void createSession()
     void refreshDocuments()
     void refreshStats()
+    void checkHealth()
   }, [])
 
   useEffect(() => {
@@ -120,8 +123,7 @@ function App() {
 
   async function handleUpload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const input = document.getElementById('upload-files') as HTMLInputElement | null
-    const files = input?.files
+    const files = uploadInputRef.current?.files
     if (!files || files.length === 0) {
       setUploadMessage('Select at least one PDF, MD, or TXT file.')
       return
@@ -144,7 +146,7 @@ function App() {
       setUploadMessage(`Upload failed: ${String(err)}`)
     } finally {
       setUploading(false)
-      if (input) input.value = ''
+      if (uploadInputRef.current) uploadInputRef.current.value = ''
     }
   }
 
@@ -183,6 +185,9 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: askedQuestion, session_id: sessionId }),
       })
+      if (!response.ok) {
+        throw new Error(`Chat request failed: ${response.status}`)
+      }
       if (!response.body) {
         throw new Error('No streaming body returned by API')
       }
@@ -210,6 +215,9 @@ function App() {
 
           if (eventData.type === 'tool_call') {
             setTrace((prev) => [...prev, `Tool call: ${eventData.name} ${JSON.stringify(eventData.args)}`])
+          }
+          if (eventData.type === 'route') {
+            setTrace((prev) => [...prev, `Route: ${eventData.route}`])
           }
           if (eventData.type === 'tool_result') {
             setTrace((prev) => [...prev, `Tool result: ${eventData.content}`])
@@ -253,6 +261,15 @@ function App() {
     }
   }
 
+  async function checkHealth() {
+    try {
+      const res = await fetch(`${API_BASE}/health`)
+      setHealthOk(res.ok)
+    } catch {
+      setHealthOk(false)
+    }
+  }
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -260,6 +277,7 @@ function App() {
           <p className="kicker">LOCAL REACT RAG CONTROL ROOM</p>
           <h1>Knowledge Ops Console</h1>
           {sessionId && <p className="kicker">Session: {sessionId.slice(0, 8)}...</p>}
+          {!healthOk && <p className="health-warning">Backend unreachable. Check API server.</p>}
         </div>
         <div className="status-pill">{statusText}</div>
       </header>
@@ -311,11 +329,9 @@ function App() {
                 <article key={turn.id} className={`bubble ${turn.role}`}>
                   <p className="bubble-role">{turn.role === 'user' ? 'You' : 'Assistant'}</p>
                   {turn.role === 'assistant' ? (
-                    <div className="markdown-body">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-                        {turn.content}
-                      </ReactMarkdown>
-                    </div>
+                    <Suspense fallback={<p className="muted">Rendering response...</p>}>
+                      <MarkdownRenderer content={turn.content} />
+                    </Suspense>
                   ) : (
                     <p>{turn.content}</p>
                   )}
@@ -344,11 +360,9 @@ function App() {
             <article>
               <h3>Answer</h3>
               {answer ? (
-                <div className="markdown-body">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-                    {answer}
-                  </ReactMarkdown>
-                </div>
+                <Suspense fallback={<p className="muted">Rendering response...</p>}>
+                  <MarkdownRenderer content={answer} />
+                </Suspense>
               ) : (
                 <pre>No answer yet.</pre>
               )}
@@ -369,7 +383,7 @@ function App() {
         <section className="panel">
           <h2>Upload and Ingest</h2>
           <form onSubmit={handleUpload} className="stack">
-            <input id="upload-files" type="file" multiple accept=".pdf,.md,.txt" />
+            <input ref={uploadInputRef} id="upload-files" type="file" multiple accept=".pdf,.md,.txt" />
             <button type="submit" disabled={uploading}>
               {uploading ? 'Uploading...' : 'Upload Files'}
             </button>

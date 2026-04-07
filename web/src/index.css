@@ -77,6 +77,13 @@ h4 {
   background: #f1f9f6;
 }
 
+.health-warning {
+  margin: 0.45rem 0 0;
+  color: #8f3a1a;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+}
+
 .tabs {
   display: flex;
   gap: 0.6rem;

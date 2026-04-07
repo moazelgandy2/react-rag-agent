@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from .agent import build_agent, invoke_agent_with_messages, stream_agent_with_messages
 from .config import settings
 from .ingest import run_ingestion
+from .orchestrator import Route, decide_route, run_calculator_route, run_direct_reply
 from .retrieval import get_vector_store, retrieve
 from .session_store import session_store
 
@@ -181,18 +182,25 @@ def chat(request: ChatRequest) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="Session not found")
 
     message_input = [*history, ("user", request.message)]
+    decision = decide_route(request.message)
 
     try:
-        result = invoke_agent_with_messages(agent, message_input)
+        if decision.route == Route.CALCULATOR:
+            answer = run_calculator_route(request.message)
+        elif decision.route == Route.DIRECT:
+            answer = run_direct_reply(request.message)
+        else:
+            result = invoke_agent_with_messages(agent, message_input)
+            answer = _humanize_answer(_extract_final_answer(result))
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"Chat failed: {exc}") from exc
 
-    answer = _humanize_answer(_extract_final_answer(result))
     session_store.append_exchange(request.session_id, request.message, answer)
 
     return {
         "session_id": request.session_id,
         "answer": answer,
+        "route": decision.route.value,
     }
 
 
@@ -206,33 +214,46 @@ def chat_stream(request: ChatRequest) -> StreamingResponse:
             return
 
         message_input = [*history, ("user", request.message)]
+        decision = decide_route(request.message)
         final_answer = ""
 
         try:
-            for step in stream_agent_with_messages(agent, message_input):
-                messages = step.get("messages", [])
-                if not messages:
-                    continue
+            route_payload = {"type": "route", "route": decision.route.value}
+            yield f"data: {json.dumps(route_payload)}\n\n"
 
-                last_message = messages[-1]
-                if isinstance(last_message, AIMessage) and last_message.tool_calls:
-                    for tool_call in last_message.tool_calls:
+            if decision.route == Route.CALCULATOR:
+                final_answer = run_calculator_route(request.message)
+                payload = {"type": "final_answer", "content": final_answer}
+                yield f"data: {json.dumps(payload)}\n\n"
+            elif decision.route == Route.DIRECT:
+                final_answer = run_direct_reply(request.message)
+                payload = {"type": "final_answer", "content": final_answer}
+                yield f"data: {json.dumps(payload)}\n\n"
+            else:
+                for step in stream_agent_with_messages(agent, message_input):
+                    messages = step.get("messages", [])
+                    if not messages:
+                        continue
+
+                    last_message = messages[-1]
+                    if isinstance(last_message, AIMessage) and last_message.tool_calls:
+                        for tool_call in last_message.tool_calls:
+                            payload = {
+                                "type": "tool_call",
+                                "name": tool_call.get("name", "unknown"),
+                                "args": tool_call.get("args", {}),
+                            }
+                            yield f"data: {json.dumps(payload)}\n\n"
+                    elif isinstance(last_message, ToolMessage):
                         payload = {
-                            "type": "tool_call",
-                            "name": tool_call.get("name", "unknown"),
-                            "args": tool_call.get("args", {}),
+                            "type": "tool_result",
+                            "content": str(last_message.content)[:500],
                         }
                         yield f"data: {json.dumps(payload)}\n\n"
-                elif isinstance(last_message, ToolMessage):
-                    payload = {
-                        "type": "tool_result",
-                        "content": str(last_message.content)[:500],
-                    }
-                    yield f"data: {json.dumps(payload)}\n\n"
-                elif isinstance(last_message, AIMessage) and not last_message.tool_calls:
-                    final_answer = _humanize_answer(str(last_message.content))
-                    payload = {"type": "final_answer", "content": final_answer}
-                    yield f"data: {json.dumps(payload)}\n\n"
+                    elif isinstance(last_message, AIMessage) and not last_message.tool_calls:
+                        final_answer = _humanize_answer(str(last_message.content))
+                        payload = {"type": "final_answer", "content": final_answer}
+                        yield f"data: {json.dumps(payload)}\n\n"
 
             session_store.append_exchange(request.session_id, request.message, final_answer)
             yield 'data: {"type": "done"}\n\n'
@@ -240,7 +261,15 @@ def chat_stream(request: ChatRequest) -> StreamingResponse:
             payload = {"type": "error", "content": str(exc)}
             yield f"data: {json.dumps(payload)}\n\n"
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.get("/vector/stats")

@@ -9,6 +9,7 @@ from rich.console import Console
 from rich.progress import Progress, TextColumn
 
 from .config import settings
+from .retrieval import reset_vector_store_cache
 
 console = Console()
 
@@ -69,6 +70,8 @@ def chunk_documents(documents: list[Document]) -> list[Document]:
 
 
 def create_vector_store(chunks: list[Document]) -> Chroma:
+    reset_vector_store_cache()
+
     embeddings = OllamaEmbeddings(
         model=settings.embedding_model,
         base_url=settings.ollama_base_url,

@@ -92,3 +92,13 @@ The API now supports session memory for conversational continuity:
 
 Session memory is in-memory on the backend (MVP), with TTL and bounded message count.
 If the API process restarts, sessions are reset.
+
+## Orchestration Layer
+
+The backend includes a lightweight orchestration layer that routes each request to the best path:
+
+- `calculator` route for math expressions
+- `direct` route for simple conversational turns
+- `agent` route for retrieval/reasoning with tools
+
+This reduces latency and unnecessary tool loops while preserving full RAG behavior for knowledge-heavy questions.
