@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.env
+.venv/
+chroma_db/
+data/raw/*
+!data/raw/.gitkeep
+*.egg-info/
+dist/
+build/
+.ruff_cache/
